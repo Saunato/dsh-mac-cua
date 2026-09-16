@@ -26,6 +26,9 @@ const path = require('node:path');
 
 const SERVER_ID = 'mcp-cua';
 const SERVER_NAME = 'cua_repl';
+// The launcher, not the server: it resolves the package itself, so the row works
+// regardless of which directory the harness spawns from.
+const LAUNCHER_REL = 'scripts/serve.js';
 
 const PKG_ROOT = path.resolve(__dirname, '..');
 const PKG_NAME = require('../package.json').name;
@@ -94,6 +97,18 @@ function findDshHome(explicit) {
   return null;
 }
 
+/**
+ * The row this installer writes.
+ *
+ * Both paths are absolute, and both have to be. The harness spawns stdio servers
+ * from its own working directory (the launch root), so `cwd: '.'` and a relative
+ * argument do not resolve there: the server dies instantly. An earlier version of
+ * this command wrote relative paths on the assumption that the working directory
+ * was the profile, which produced a plugin that killed the harness on startup.
+ *
+ * `failOnStartupError` is false so that a failure here degrades to "the tool is
+ * missing" instead of "the product will not boot".
+ */
 function buildRow() {
   return [
     `- insert:`,
@@ -104,12 +119,12 @@ function buildRow() {
     `        transport: stdio`,
     `        command: node`,
     `        args:`,
-    `          - '${SERVER_JS}'`,
+    `          - '${path.join(PKG_ROOT, LAUNCHER_REL)}'`,
     `        cwd: '${PKG_ROOT}'`,
     `        env:`,
     `          DSH_CUA_NATIVE: '${path.join(PKG_ROOT, 'native', 'dsh_cua.node')}'`,
     `        toolCallTimeoutMs: 180000`,
-    `        failOnStartupError: true`,
+    `        failOnStartupError: false`,
   ].join('\n');
 }
 
@@ -309,6 +324,15 @@ function runStatus(args) {
   const mounted = bundled || explicitRow;
   console.log('');
   if (mounted) {
+    if (bundled && !explicitRow) {
+      // The bundle's own row uses a relative path, which does not resolve from
+      // the launch root. Say so rather than claiming a working install.
+      console.log('  ⚠ The bundle layer is mounted, but its row uses a relative path that');
+      console.log('    does not resolve from the harness working directory. Run this');
+      console.log('    command with --write to add an absolute-path row.');
+      process.exitCode = 1;
+      return;
+    }
     console.log('  ✓ The MCP server is mounted. After a harness reload the agent sees');
     console.log('    mcp__cua_repl__js and mcp__cua_repl__js_reset.');
     if (!native.ok) {

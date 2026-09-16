@@ -39,16 +39,20 @@ MCP server with your profile — it writes the patch row with this installation'
 absolute paths:
 
 ```sh
-dsh-cua-setup                    # check the install and report what is missing
+dsh-cua-setup --write     # add a profile row carrying this install's absolute paths
+dsh-cua-setup             # check everything and report what is missing
 ```
 
-A normal install needs **no configuration**. The package declares `dsh.bundle`,
-so `dsh plugin add dsh-cua` mounts the MCP server from the package's own
-`cordis.patch.yml`, with no absolute paths to fill in.
+The package declares `dsh.bundle`, so `dsh plugin add dsh-mac-cua` mounts the MCP
+server from the package's own `cordis.patch.yml`. That bundled row **cannot** carry
+absolute paths — the install location is not known when the package is built — and
+it cannot be extended from your profile either, because an id-targeted patch
+replaces a row's `config` wholesale rather than merging into it.
+`dsh-cua-setup --write` supplies the absolute paths, and `dsh-cua-setup` with no
+arguments reports whether that has been done.
 
-If the tools do not appear, `dsh-cua-setup` separates the possible causes —
-missing dependency, missing bundle layer, broken native module, missing
-permission — and names the fix for whichever one it finds.
+The bundled row sets `failOnStartupError: false` on purpose: a misconfiguration
+then costs you the tool, not the application. The harness still boots.
 
 <details>
 <summary>Manual installs, or overriding the row</summary>

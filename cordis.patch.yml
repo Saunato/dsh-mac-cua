@@ -1,12 +1,34 @@
 # dsh-cua bundle patch
 #
-# Mounts the Computer Use MCP server. This row is what makes the plugin work
-# after `dsh plugin add`, with no manual configuration.
+# Mounts the Computer Use MCP server when the package is installed as a profile
+# bundle (`dsh plugin --profile web add dsh-mac-cua`).
 #
-# Paths are relative to the profile directory, which is where pnpm materializes
-# the package. Nothing absolute is baked in, so the same patch works for every
-# install location, and the server resolves its own native module relative to
-# itself rather than from configuration.
+# ── Read this before trusting the install ────────────────────────────────────
+#
+# This row alone does NOT produce a working install, and it is not safe to assume
+# otherwise. An id-targeted patch assigns `config` wholesale, so a profile CANNOT
+# extend this row — it can only replace it. That means there is no way to fix the
+# path from outside without repeating every field.
+#
+# The problem: the harness spawns stdio servers from ITS working directory (the
+# launch root), not from the profile directory. `cwd: '.'` therefore resolves to
+# the launch root, where `./scripts/serve.js` does not exist, and the server never
+# starts. The command cannot carry an absolute path either, because the install
+# location is not known when the package is built.
+#
+# So after installing, run:
+#
+#     dsh-cua-setup --write
+#
+# which writes a profile row carrying this package's absolute paths. `dsh-cua-setup`
+# with no arguments reports whether that has been done, and says so when it has not.
+#
+# ── Why failOnStartupError is false ─────────────────────────────────────────
+#
+# A desktop-automation plugin must never be able to prevent the harness from
+# booting. With this true, the path problem above took the entire product down to
+# the safe-mode recovery screen — a plugin that fails to start should leave the
+# tool missing, and nothing more.
 - insert:
     - id: mcp-cua
       name: '@deepseek-ai/dsh-mcp-client'
@@ -15,7 +37,7 @@
         transport: stdio
         command: node
         args:
-          - 'node_modules/dsh-mac-cua/cua-repl/server.js'
+          - './scripts/serve.js'
         cwd: '.'
         toolCallTimeoutMs: 180000
-        failOnStartupError: true
+        failOnStartupError: false

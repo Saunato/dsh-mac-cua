@@ -225,24 +225,28 @@ function main() {
     assert.ok(row.startsWith('- insert:'), 'a bare - id: row would be rejected as an override');
     assert.ok(row.includes(`- id: ${S.SERVER_ID}`), row);
     assert.ok(row.includes('transport: stdio'), row);
-    assert.ok(row.includes('failOnStartupError: true'), row);
+    assert.ok(row.includes('failOnStartupError: false'), row);
   });
 
-  test('the bundle patch points at this package name', () => {
-    // Regression: renaming the package left the bundle patch pointing at the old
-    // directory, so the MCP server silently failed to start while every other
-    // check still passed.
+  test('the bundle patch never enables failOnStartupError', () => {
+    // The bundle patch ships to every user, so this is the most important
+    // assertion in the file: that setting is what turned a bad path into a
+    // product-wide startup failure.
     const fs2 = require('node:fs');
     const path2 = require('node:path');
-    const pkgName = require(path2.join(__dirname, '..', 'package.json')).name;
     const patch = fs2.readFileSync(path2.join(__dirname, '..', 'cordis.patch.yml'), 'utf8');
+    const live = patch.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+    assert.ok(/failOnStartupError:\s*false/.test(live),
+      'the bundle row must set failOnStartupError: false');
+    assert.ok(!/failOnStartupError:\s*true/.test(live),
+      'failOnStartupError: true lets the plugin kill the harness boot');
+  });
 
-    const refs = patch.match(/node_modules\/([^/]+)\//g) || [];
-    assert.ok(refs.length > 0, 'the bundle patch should reference the package under node_modules');
-    for (const ref of refs) {
-      assert.strictEqual(ref, `node_modules/${pkgName}/`,
-        `bundle patch references ${ref} but the package is named ${pkgName}`);
-    }
+  test('the bundle patch launches via the launcher script', () => {
+    const fs2 = require('node:fs');
+    const path2 = require('node:path');
+    const patch = fs2.readFileSync(path2.join(__dirname, '..', 'cordis.patch.yml'), 'utf8');
+    assert.ok(/serve\.js/.test(patch), patch);
   });
 
   test('the bundle patch is a loadable overlay', () => {
@@ -252,6 +256,34 @@ function main() {
     // Must contain at least one top-level entry, or the loader rejects it.
     assert.ok(/^- insert:/m.test(patch), patch);
     assert.ok(/serverName:\s*cua_repl/.test(patch), patch);
+  });
+
+  test('the generated row sets failOnStartupError to false', () => {
+    // Regression: with this true, a bad path took the whole harness down to the
+    // safe-mode recovery screen. A plugin must not be able to block the boot.
+    const row = S.buildRow();
+    assert.ok(/failOnStartupError:\s*false/.test(row), row);
+    assert.ok(!/failOnStartupError:\s*true/.test(row),
+      'failOnStartupError must never be true: it lets a plugin kill the boot');
+  });
+
+  test('the generated row uses absolute paths for both command and cwd', () => {
+    // Regression: relative paths do not resolve, because the harness spawns
+    // stdio servers from the launch root rather than the profile directory.
+    const row = S.buildRow();
+    const args = row.match(/^\s+- '([^']+)'\s*$/m);
+    const cwd = row.match(/^\s+cwd: '([^']+)'\s*$/m);
+    assert.ok(args, `no args path in row:\n${row}`);
+    assert.ok(cwd, `no cwd in row:\n${row}`);
+    assert.ok(path.isAbsolute(args[1]), `args path must be absolute: ${args[1]}`);
+    assert.ok(path.isAbsolute(cwd[1]), `cwd must be absolute: ${cwd[1]}`);
+  });
+
+  test('the generated row launches the launcher, not the server directly', () => {
+    // The launcher resolves the package itself; pointing straight at server.js
+    // was what broke when the working directory was not the package.
+    const row = S.buildRow();
+    assert.ok(/scripts\/serve\.js/.test(row), row);
   });
 
   test('the generated row declares the native module path explicitly', () => {

@@ -88,8 +88,16 @@ func captureScreenshot(cropTo windowBounds: CGRect? = nil) throws -> (url: Strin
         sem.signal()
     }
 
-    guard sem.wait(timeout: .now() + 25) == .success else {
-        throw DshError.screenshot("Screen capture timed out after 25s")
+    // macOS can leave this call hanging while it waits on a Screen Recording
+    // permission prompt that the user has not answered. Failing at 8s with a
+    // message that names that possibility is far more useful than blocking for
+    // 25s and then reporting only a timeout.
+    guard sem.wait(timeout: .now() + 8) == .success else {
+        throw DshError.screenshot(
+            "Screen capture did not respond within 8s. macOS blocks this call while it waits for a Screen Recording " +
+            "permission decision — check for a system prompt, or grant it in System Settings > Privacy & Security > " +
+            "Screen Recording for DSH Desktop. The accessibility tree is unaffected, so text-only operation still works."
+        )
     }
 
     let image: CGImage
