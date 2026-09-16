@@ -1,6 +1,6 @@
 {
   "name": "dsh-mac-cua",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Computer Use for DeepSeek Harness: control macOS desktop apps through a persistent JavaScript REPL, backed by the Accessibility API.",
   "main": "lib/sky.js",
   "scripts": {
@@ -39,7 +39,8 @@
   ],
   "bin": {
     "dsh-cua-setup": "scripts/setup.js",
-    "dsh-cua-build": "scripts/build-native.js"
+    "dsh-cua-build": "scripts/build-native.js",
+    "dsh-cua-serve": "scripts/serve.js"
   },
   "os": [
     "darwin"

@@ -73,10 +73,17 @@ const server = resolveServer();
 
 if (!server) {
   process.stderr.write(
-    `[dsh-cua] could not locate the ${PACKAGE} package from ${__filename}\n` +
-    `[dsh-cua] working directory: ${process.cwd()}\n` +
-    '[dsh-cua] the install looks incomplete. Reinstall with:\n' +
-    `[dsh-cua]   dsh plugin --profile web add ${PACKAGE}\n`
+    `[dsh-cua] could not locate the ${PACKAGE} package.\n` +
+    `[dsh-cua]   launcher   : ${__filename}\n` +
+    `[dsh-cua]   working dir: ${process.cwd()}\n` +
+    '[dsh-cua] This is expected right after installing: the bundle patch runs the\n' +
+    '[dsh-cua] launcher with a relative path, and the harness spawns from its own\n' +
+    '[dsh-cua] directory rather than the profile. Write a row with absolute paths:\n' +
+    '[dsh-cua]\n' +
+    `[dsh-cua]   dsh-cua-setup --write\n` +
+    '[dsh-cua]\n' +
+    '[dsh-cua] then reload the harness. The tool stays absent until then; nothing\n' +
+    '[dsh-cua] else is affected.\n'
   );
   process.exit(1);
 }

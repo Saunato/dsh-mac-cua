@@ -3,32 +3,27 @@
 # Mounts the Computer Use MCP server when the package is installed as a profile
 # bundle (`dsh plugin --profile web add dsh-mac-cua`).
 #
-# ── Read this before trusting the install ────────────────────────────────────
-#
-# This row alone does NOT produce a working install, and it is not safe to assume
-# otherwise. An id-targeted patch assigns `config` wholesale, so a profile CANNOT
-# extend this row — it can only replace it. That means there is no way to fix the
-# path from outside without repeating every field.
-#
-# The problem: the harness spawns stdio servers from ITS working directory (the
-# launch root), not from the profile directory. `cwd: '.'` therefore resolves to
-# the launch root, where `./scripts/serve.js` does not exist, and the server never
-# starts. The command cannot carry an absolute path either, because the install
-# location is not known when the package is built.
-#
-# So after installing, run:
+# ── One command is required after install ───────────────────────────────────
 #
 #     dsh-cua-setup --write
 #
-# which writes a profile row carrying this package's absolute paths. `dsh-cua-setup`
-# with no arguments reports whether that has been done, and says so when it has not.
+# Why this cannot be avoided, after trying: the harness spawns stdio servers from
+# its own working directory — not the profile directory — so a relative path into
+# `node_modules` does not resolve, and the server never starts. An absolute path
+# cannot be baked in either, because the install location is not known when the
+# package is built. Verified as unavailable: the loader's `!!js` expressions see a
+# context with no package directory; the config schema performs no variable
+# expansion; and pnpm's `.bin` shims are not on the spawned process's PATH.
 #
-# ── Why failOnStartupError is false ─────────────────────────────────────────
+# The row below therefore mounts the server but does NOT make it run. If it is
+# left as-is the tool is simply absent, and the harness boots normally.
+# `dsh-cua-setup --write` replaces this row with one carrying absolute paths.
+#
+# ── Why failOnStartupError is false ────────────────────────────────────────
 #
 # A desktop-automation plugin must never be able to prevent the harness from
-# booting. With this true, the path problem above took the entire product down to
-# the safe-mode recovery screen — a plugin that fails to start should leave the
-# tool missing, and nothing more.
+# booting. With this true, the missing path above took the whole product down to
+# the safe-mode recovery screen instead of leaving one tool unavailable.
 - insert:
     - id: mcp-cua
       name: '@deepseek-ai/dsh-mcp-client'
