@@ -3,67 +3,69 @@
 Objective: build the Codex-equivalent Computer Use plugin, verify it, publish it to
 the dsh market.
 
-## Done
+## Published
 
-| Area | State |
+| Item | State |
 |---|---|
-| Native module (Swift AX core + C N-API) | built, 25 tests pass |
-| REPL + MCP server | built, 25 tests pass |
-| Setup/bundle/patch tooling | built, 23 tests pass |
-| **Total** | **73 tests, 0 failures** |
-| Package | `dsh-mac-cua` 1.0.0, ~138 kB, zero runtime deps, prebuilt binary |
-| Git repository | initialised, 2 commits, working tree clean, 27 files |
-| Fresh-clone verification | clone runs all 73 tests; source rebuild also works |
-| Install path | verified via `dsh plugin add` |
-| Tool binding through DSH | verified — the model used `mcp__cua_repl__js` |
-| Write round-trip through DSH | verified — TextEdit `set_value` + read-back |
-| Image delivery | verified — valid `image/png` content block |
-| Live DSH Desktop profile | dependency installed, bundle layer active |
-| Registry entry | `market/Saunato__dsh-mac-cua.yml`, YAML validated, claims checked |
+| Repository | https://github.com/Saunato/dsh-mac-cua (public, 29 files) |
+| Release | **v1.0.1** — `dsh-mac-cua.tgz`, version-free asset name, hash-verified |
+| Registry PR | https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/5210 |
+| CI gate | **only** failing the repo-age rule (0.0 days, needs 1); clears by itself in ~24h |
+| npm | not published — no npmjs.com account; the Release tarball is the install path |
+| Local install | working in the live DSH Desktop profile |
 
-## Blocked on: publish credentials
+`git push` does not work from this network (`github.com:22` and `:443` unreachable,
+`api.github.com` reachable), so the repository is published through the **Git Data
+API** — see `scripts/publish-to-github.js`. The same constraint means the tarball
+must be fetched through the API host here; it resolves normally elsewhere.
 
-The only remaining step. Verified absent by exhaustive check — `~/.npmrc` has no
-token, no `NPM_TOKEN`/`NODE_AUTH_TOKEN` in the environment, nothing in the
-keychain, no `gh` CLI, no `~/.config/gh`, and the global git identity
-(`Saunato <awesomeWar@163.com>`) is not an authentication for either service.
+## Two startup failures, both fixed
 
-- **`dsh-mac-cua` is free on npm and GitHub.** `Saunato` exists (created 2021),
-  satisfying the registry's 1-day repo-age rule.
-- **npm is now optional**: the registry accepts a GitHub Release tarball, so
-  publishing needs only the GitHub login required anyway to push the repo.
-- `PUBLISHING.md` has the exact commands; the `tarball:` line is pre-written in
-  the entry, commented, with the version-free asset-name rule explained.
+The plugin twice took DSH Desktop to the safe-mode recovery screen. Both root
+causes are now covered by tests.
 
-## To finish
+**1. Relative path, and a fatal mount.** The bundle row ran
+`./scripts/serve.js` with `cwd: '.'`, but the harness spawns stdio servers from
+*its* working directory (the launch root), not the profile — so the path did not
+resolve and the server never started. With `failOnStartupError: true` that killed
+the whole boot. Fixes: `scripts/serve.js` locates the package itself;
+`failOnStartupError` is now `false` (a plugin must never be able to block the
+boot); `setup --write` emits absolute paths for both `args` and `cwd`.
 
-```sh
-cd ~/dsh-cua && git remote add origin git@github.com:Saunato/dsh-mac-cua.git && git push -u origin main
-# create the repo, add the dsh-plugin topic
-npm pack && gh release create v1.0.0 <renamed-to-dsh-mac-cua.tgz>
-# uncomment tarball: in market/Saunato__dsh-mac-cua.yml, then PR it to
-# awesome-dsh-plugin/awesome-dsh-plugin at data/plugins/Saunato__dsh-mac-cua.yml
+**2. Duplicate insert.** `setup --write` always wrote an `- insert:` block, but the
+bundle patch already inserts the same `mcp-cua` id — two insertions register the
+component twice and the harness refuses to start with "duplicate service
+component". `buildRow(mode)` now emits an **override** (`- id: mcp-cua`) when the
+bundle is present, detected via `dsh.profile.bundles`; both shapes carry a complete
+config, because an id-targeted patch replaces `config` wholesale rather than
+merging into it.
+
+## Verified in the live session
+
+`mcp__cua_repl__js` was called successfully after the fix:
+
 ```
-
-Then restart DSH Desktop so the running harness picks up the bundle layer; the
-agent will see `mcp__cua_repl__js`.
+MCP tool live ✅
+Finder: com.apple.finder elements=6
+screenshot: attached
+apps = 137
+```
 
 ## Environment facts worth keeping
 
-- macOS 26.6.2. `CGWindowListCreateImage` is **removed**; screenshots must use
-  ScreenCaptureKit, and capture fails while the screen is locked (`displays=0`,
-  `CGSSessionScreenIsLocked=1`).
+- macOS 26.6.2. `CGWindowListCreateImage` is **removed**; screenshots use
+  ScreenCaptureKit. Capture fails while the screen is locked (`displays=0`), and
+  the call can hang while macOS waits on a Screen Recording prompt — it now fails
+  at 8s with a message saying so.
 - Accessibility is granted to **DSH Desktop**; a bare binary inherits it through
-  TCC responsible-process attribution, which is why the native module needs no
-  separate grant. `osascript` is denied because it is attributed to itself.
-- DSH's `node` is an Electron shim (`ELECTRON_RUN_AS_NODE=1`). The N-API addon
-  loads in both it and standalone Node 24.
-- Loader rules: a patch entry is an `insert:` list (a bare `- id:` row is an
-  override and fails with `entry "<id>" not found`); a patch file must be a
-  top-level YAML array (a comment-only file fails the boot); a package's own
+  TCC responsible-process attribution. `osascript` is denied (attributed to itself).
+- DSH's `node` is an Electron shim (`ELECTRON_RUN_AS_NODE=1`); the N-API addon
+  loads in it and in standalone Node 24.
+- Loader rules: a patch entry is an `insert:` list **or** an id-targeted override,
+  never both for one id; a patch file must be a top-level YAML array; a package's
   `cordis.patch.yml` loads only when declared via `dsh.bundle`; `dsh plugin add`
-  reconciles `dsh.profile.bundles` from the installed state.
-- Build: `swiftc` needs `-wmo`, or cross-file internal symbols do not resolve.
+  reconciles `dsh.profile.bundles` from installed state.
+- `swiftc` needs `-wmo`, or cross-file internal symbols do not resolve.
 - MCP stdio is newline-delimited JSON-RPC (no Content-Length framing).
 
 ## Bugs found and fixed (each has a regression test)
@@ -78,5 +80,13 @@ agent will see `mcp__cua_repl__js`.
 - the MCP server exited on stdin close without draining in-flight requests
 - `setup --remove` could leave a comment-only, unbootable overlay
 - the bundle patch kept pointing at the old directory after the package rename
-- the native test suite was flaky when the GUI test host exited mid-run; the
-  harness now detects a dead host, restarts it, and says so
+- the native test suite was flaky when the GUI test host exited mid-run
+- **a relative command path plus `failOnStartupError: true` killed the boot**
+- **a duplicate `insert` of one id killed the boot**
+
+## Known outstanding
+
+- The native suite is occasionally flaky: the GUI test host exits mid-run, the
+  harness restarts it and says so, but a test can still land in the gap. Diagnosing
+  it properly needs the host's stderr captured (not yet done).
+- Registry CI currently fails on repo age only. It re-runs on its own; nothing to do.
