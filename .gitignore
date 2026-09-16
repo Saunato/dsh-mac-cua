@@ -1,0 +1,16 @@
+# Swift compiler side-products from -wmo compilation
+native/*.abi.json
+native/*.swiftdoc
+native/*.swiftsourceinfo
+native/*.o
+
+# Built test host (compiled from test/host.swift on demand)
+test/host
+
+# The packaged binary is NOT ignored: npm installs ship it, because most users
+# have no Swift toolchain configured.
+
+*.tgz
+node_modules/
+.DS_Store
+*.log

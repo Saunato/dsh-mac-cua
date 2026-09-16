@@ -1,0 +1,21 @@
+# dsh-cua bundle patch
+#
+# Mounts the Computer Use MCP server. This row is what makes the plugin work
+# after `dsh plugin add`, with no manual configuration.
+#
+# Paths are relative to the profile directory, which is where pnpm materializes
+# the package. Nothing absolute is baked in, so the same patch works for every
+# install location, and the server resolves its own native module relative to
+# itself rather than from configuration.
+- insert:
+    - id: mcp-cua
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: cua_repl
+        transport: stdio
+        command: node
+        args:
+          - 'node_modules/dsh-mac-cua/cua-repl/server.js'
+        cwd: '.'
+        toolCallTimeoutMs: 180000
+        failOnStartupError: true

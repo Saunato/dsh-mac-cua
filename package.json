@@ -1,0 +1,71 @@
+{
+  "name": "dsh-mac-cua",
+  "version": "1.0.0",
+  "description": "Computer Use for DeepSeek Harness: control macOS desktop apps through a persistent JavaScript REPL, backed by the Accessibility API.",
+  "main": "lib/sky.js",
+  "scripts": {
+    "build": "bash native/build.sh",
+    "test": "node test/run-tests.js && node test/mcp-tests.js && node test/setup-tests.js",
+    "test:native": "node test/run-tests.js",
+    "test:mcp": "node test/mcp-tests.js",
+    "test:setup": "node test/setup-tests.js"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "computer-use",
+    "macos",
+    "accessibility",
+    "automation"
+  ],
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "lib/",
+    "cua-repl/",
+    "instructions/",
+    "scripts/",
+    "native/build.sh",
+    "native/*.swift",
+    "native/addon.c",
+    "native/dsh_cua.node",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "dsh-cua-setup": "scripts/setup.js",
+    "dsh-cua-build": "scripts/build-native.js"
+  },
+  "os": [
+    "darwin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Saunato/dsh-mac-cua.git"
+  },
+  "homepage": "https://github.com/Saunato/dsh-mac-cua",
+  "bugs": {
+    "url": "https://github.com/Saunato/dsh-mac-cua/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-mcp-client": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-mcp-client": {
+      "optional": false
+    }
+  },
+  "author": {
+    "name": "Saunato"
+  }
+}
