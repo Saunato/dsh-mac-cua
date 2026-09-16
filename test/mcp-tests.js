@@ -231,6 +231,42 @@ async function main() {
         'a var declared in one call must survive into the next');
     });
 
+    await test('js does not rewrite `var` inside strings, blocks or functions', async () => {
+      // Regression: hoisting was a regex, so it rewrote `var` anywhere it
+      // appeared. It corrupted string literals and changed function scope:
+      //   function f() { var x = 1; }  ->  var became globalThis.x
+      //   var s = "  var z = 3;";      ->  the string's contents were rewritten
+      const cases = [
+        // String contents must survive verbatim.
+        ['var s = "  var z = 3;"; s', 'var z = 3;'],
+        // A var inside a function stays function-scoped.
+        [['function f2() { var scoped = 1; return scoped; }', 'f2()', 'typeof scoped'].join('\n'), 'undefined'],
+        // A var inside a block is not hoisted out of it by us.
+        [['if (true) { var inBlock = 5; }', 'inBlock'].join('\n'), '5'],
+      ];
+      for (const [code, expected] of cases) {
+        const res = await client.request('tools/call', { name: 'js', arguments: { code } });
+        const last = resultText(res.result).trim().split('\n').pop().trim();
+        assert.strictEqual(last, expected, `for ${JSON.stringify(code)} got ${JSON.stringify(last)}`);
+      }
+    });
+
+    await test('js returns the completion value after a declaration', async () => {
+      // Regression: the tail candidate swallowed the whole input when a block
+      // ended at top level, producing source that would not compile, so the
+      // value was silently lost.
+      const cases = [
+        ['function fn() { return 41 + 1; } fn()', '42'],
+        ['if (true) { var t = 7 } t', '7'],
+        [['for (var i = 0; i < 3; i++) {}', 'i'].join('\n'), '3'],
+      ];
+      for (const [code, expected] of cases) {
+        const res = await client.request('tools/call', { name: 'js', arguments: { code } });
+        const last = resultText(res.result).trim().split('\n').pop().trim();
+        assert.strictEqual(last, expected, `for ${JSON.stringify(code)} got ${JSON.stringify(last)}`);
+      }
+    });
+
     await test('js supports top-level await', async () => {
       const res = await client.request('tools/call', {
         name: 'js',

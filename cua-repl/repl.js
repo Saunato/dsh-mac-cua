@@ -136,16 +136,109 @@ class PersistentRepl {
   }
 
   /**
-   * Hoist top-level `var` declarations onto the global object.
+   * Rewrite only *top-level* `var` declarations to `globalThis.<name> = ...`.
    *
-   * `(?<![.\w$])` keeps property accesses (`foo.bar`), identifiers inside words,
-   * and member names untouched — only standalone declarations are rewritten.
+   * Top-level `var` must survive into the next call to behave like a REPL, but
+   * the code is compiled inside an async function, which would scope it to the
+   * call. Rewriting is the fix for that.
+   *
+   * This is done with a small scanner rather than a regex, because a regex cannot
+   * tell a declaration from these, and rewrote all of them:
+   *
+   *   function f() { var x = 1; }   ->  changed the variable's scope
+   *   var s = "  var z = 3;";       ->  rewrote text inside a string literal
+   *
+   * Only depth-0 statements are touched, and string, template and comment spans
+   * are skipped entirely. This is still not a parser — a `var` inside a regex
+   * literal at top level would fool it — but it is exact for real code, and the
+   * failure mode is a missed hoist rather than corrupted source.
    */
   _hoistVars(code) {
-    return code.replace(
-      /(?<![.\w$])(?:^|[;\n])(\s*)var\s+([A-Za-z_$][\w$]*)/g,
-      (match, ws, name) => match.replace(`var ${name}`, `globalThis.${name}`)
-    );
+    let out = '';
+    let depth = 0;
+    let quote = null;
+    let inTemplate = false;
+    let inLineComment = false;
+    let inBlockComment = false;
+    // True while at the start of a top-level statement, where `var` declares.
+    let atStatementStart = true;
+
+    for (let i = 0; i < code.length; i++) {
+      const ch = code[i];
+      const next = code[i + 1];
+
+      if (inLineComment) {
+        out += ch;
+        if (ch === '\n') { inLineComment = false; atStatementStart = true; }
+        continue;
+      }
+      if (inBlockComment) {
+        out += ch;
+        if (ch === '*' && next === '/') { out += next; i++; inBlockComment = false; }
+        continue;
+      }
+      if (quote) {
+        out += ch;
+        if (ch === '\\') { if (next !== undefined) { out += next; i++; } continue; }
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (inTemplate) {
+        out += ch;
+        if (ch === '\\') { if (next !== undefined) { out += next; i++; } continue; }
+        if (ch === '`') inTemplate = false;
+        continue;
+      }
+
+      if (ch === '/' && next === '/') { out += ch + next; i++; inLineComment = true; continue; }
+      if (ch === '/' && next === '*') { out += ch + next; i++; inBlockComment = true; continue; }
+      if (ch === '"' || ch === "'") { quote = ch; out += ch; atStatementStart = false; continue; }
+      if (ch === '`') { inTemplate = true; out += ch; atStatementStart = false; continue; }
+
+      if (ch === '{' || ch === '(' || ch === '[') { depth++; out += ch; atStatementStart = false; continue; }
+      if (ch === '}' || ch === ')' || ch === ']') {
+        depth--;
+        out += ch;
+        // A closing `}` at top level ends a block, after which a new statement
+        // may begin (`function f() {...} f()`). Without this, a top-level `var`
+        // following a block was never hoisted, so it did not survive the call.
+        atStatementStart = ch === '}' && depth === 0;
+        continue;
+      }
+
+      if (ch === ';' || ch === '\n') {
+        out += ch;
+        atStatementStart = depth === 0;
+        continue;
+      }
+      if (/\s/.test(ch)) { out += ch; continue; }
+
+      // A top-level statement beginning with `var` — rewrite the declaration.
+      if (depth === 0 && atStatementStart && code.startsWith('var', i) &&
+          !/[\w$]/.test(code[i - 1] || '') && !/[\w$]/.test(code[i + 3] || '')) {
+        const rest = code.slice(i + 3);
+        const m = rest.match(/^(\s+)([A-Za-z_$][\w$]*)\s*=/);
+        if (m) {
+          out += `globalThis.${m[2]} =`;
+          i += 3 + m[0].length - 1;
+          atStatementStart = false;
+          continue;
+        }
+        // `var x;` with no initialiser: declare it on the global object so it
+        // exists for later calls.
+        const bare = rest.match(/^(\s+)([A-Za-z_$][\w$]*)\s*(?=[;\n]|$)/);
+        if (bare) {
+          out += `globalThis.${bare[2]}`;
+          i += 3 + bare[0].length - 1;
+          atStatementStart = false;
+          continue;
+        }
+      }
+
+      atStatementStart = false;
+      out += ch;
+    }
+    return out;
   }
 
   /**
@@ -184,6 +277,7 @@ class PersistentRepl {
     let start = 0;
     let quote = null;
     let inTemplate = false;
+    const topLevelSemicolons = [];
 
     for (let i = 0; i < trimmed.length; i++) {
       const ch = trimmed[i];
@@ -200,10 +294,27 @@ class PersistentRepl {
       if (ch === '"' || ch === "'") { quote = ch; continue; }
       if (ch === '`') { inTemplate = true; continue; }
       if (ch === '(' || ch === '[' || ch === '{') { depth++; continue; }
-      if (ch === ')' || ch === ']' || ch === '}') { depth--; continue; }
-      if (depth > 0) continue;
+      if (ch === ')' || ch === ']' || ch === '}') {
+        depth--;
+        // A `}` that closes a top-level block ends a statement, so an expression
+        // may follow it on the same line — `function f(){...} f()`,
+        // `if (x) {...} y`. Treating that as one expression made the wrapper
+        // `return (function f(){...} f())` fail to compile, and the completion
+        // value was lost. A `}` inside brackets (`({k:1})`) does not qualify,
+        // because depth is still above zero there.
+        if (ch === '}' && depth === 0) start = i + 1;
+        continue;
+      }
 
-      if (ch === ';') { start = i + 1; continue; }
+      // A semicolon splits statements only at depth 0. Recording them lets the
+      // guard below detect that the slice after the last split still contains a
+      // separator — which is what happens for `function f(){...} f()`, where the
+      // only semicolons are inside the braces.
+      if (ch === ';') {
+        if (depth === 0) { start = i + 1; topLevelSemicolons.push(i); }
+        continue;
+      }
+      if (depth > 0) continue;
       // A newline only separates statements when it is a genuine statement
       // terminator. It is not one when the previous line ends with an operator
       // (`a +\n b`) or the next line continues the expression (`.method()`,
@@ -224,6 +335,18 @@ class PersistentRepl {
     // A trailing operator means the expression is unfinished (likely a syntax
     // error the caller should see), so do not claim it as an expression.
     if (/[+\-*/%&|^<>=,.]$/.test(tail)) return null;
+
+    // The candidate must be ONE expression. If a top-level semicolon sits inside
+    // it, the scanner failed to find the statement boundary — `function f(){...}`
+    // with no separator before `f()` is the case that matters — and returning it
+    // produced `return (function f(){...} f());`, which does not compile, losing
+    // the completion value. Braces alone are fine: `(() => 3)()` and
+    // `function f(){...} f()` both contain them.
+    // If a top-level semicolon sits inside `tail`, the boundary was missed and
+    // the candidate spans statements; decline rather than emit source that will
+    // not compile.
+    if (topLevelSemicolons.some((pos) => pos >= start)) return null;
+
     return tail;
   }
 
