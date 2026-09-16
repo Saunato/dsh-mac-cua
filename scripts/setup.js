@@ -441,7 +441,7 @@ function main() {
 
   fs.writeFileSync(patchFile, next);
   console.log(`dsh-cua-setup: wrote the ${SERVER_ID} row to ${patchFile}`);
-  console.log(`  server : ${SERVER_JS}`);
+  console.log(`  launcher: ${path.join(PKG_ROOT, LAUNCHER_REL)}`);
   console.log(`  cwd    : ${PKG_ROOT}`);
   console.log('');
   console.log('Next steps:');
