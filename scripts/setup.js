@@ -189,9 +189,18 @@ function extractInsertBlocks(text) {
   return blocks;
 }
 
-/** Does the profile already carry our row? */
+/**
+ * Does the profile already carry a row for this plugin?
+ *
+ * Two shapes count, and both must be detected: an `- insert:` block (used when
+ * no bundle is present) and a bare `- id:` override (used when the bundle already
+ * inserts the row). Checking only for insert blocks reported "not configured" on
+ * a profile that was correctly configured with an override.
+ */
 function hasOurRow(text) {
-  return extractInsertBlocks(text).some((b) => b.id === SERVER_ID);
+  if (extractInsertBlocks(text).some((b) => b.id === SERVER_ID)) return true;
+  // A top-level `- id: <ours>` row.
+  return text.split('\n').some((line) => line.trim() === `- id: ${SERVER_ID}`);
 }
 
 /** Remove our insert block, leaving every other row untouched. */
@@ -331,19 +340,28 @@ function runStatus(args) {
   const mounted = bundled || explicitRow;
   console.log('');
   if (mounted) {
-    if (bundled && !explicitRow) {
-      // The bundle's own row uses a relative path, which does not resolve from
-      // the launch root. Say so rather than claiming a working install.
-      console.log('  ⚠ The bundle layer is mounted, but its row uses a relative path that');
-      console.log('    does not resolve from the harness working directory. Run this');
-      console.log('    command with --write to add an absolute-path row.');
+    if (bundled && explicitRow) {
+      // The bundle's relative row does not resolve from the launch root, so an
+      // override carrying absolute paths is what actually makes this work. Say
+      // that plainly instead of implying the bundle alone is sufficient.
+      console.log('  ✓ The MCP server is mounted, via an explicit override row.');
+      console.log('    (The bundle\'s own row uses a relative path that does not resolve,');
+      console.log('     so the override is what does the work.)');
+    } else if (bundled) {
+      // Bundle only: it mounts, but the server will not start.
+      console.log('   Only the bundle row is present, and it uses a relative path that does');
+      console.log('    not resolve from the harness working directory — the server will not');
+      console.log('    start. Run this command with --write to add an absolute-path override.');
       process.exitCode = 1;
       return;
     }
-    console.log('  ✓ The MCP server is mounted. After a harness reload the agent sees');
-    console.log('    mcp__cua_repl__js and mcp__cua_repl__js_reset.');
+    else {
+      console.log('  ✓ The MCP server is mounted, via an explicit patch row.');
+    }
+    console.log('    After a harness reload the agent sees mcp__cua_repl__js and');
+    console.log('    mcp__cua_repl__js_reset.');
     if (!native.ok) {
-      console.log('  ✗ but the native module must build before any call will work.');
+      console.log('  ✗ the native module must build before any call will work.');
     }
   } else if (listed) {
     console.log('  ✗ Installed, but no bundle layer and no patch row: the server is not mounted.');

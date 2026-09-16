@@ -215,6 +215,19 @@ function main() {
     assert.strictEqual(S.hasOurRow(text), false);
   });
 
+  test('hasOurRow detects a bare override row, not just an insert block', () => {
+    // Regression: checking only for insert blocks reported "not configured" on a
+    // profile that was correctly configured with an id-targeted override.
+    const override = [
+      '- id: mcp-cua',
+      "  name: '@deepseek-ai/dsh-mcp-client'",
+      '  config:',
+      '    serverName: cua_repl',
+    ].join('\n');
+    assert.strictEqual(S.hasOurRow(override), true, 'a bare - id: row must count');
+    assert.strictEqual(S.hasOurRow('[]\n'), false);
+  });
+
   test('hasOurRow ignores the id appearing only in a comment', () => {
     const text = '# mentions mcp-cua in prose\n[]\n';
     assert.strictEqual(S.hasOurRow(text), false);
