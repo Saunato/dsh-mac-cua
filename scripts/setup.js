@@ -109,22 +109,29 @@ function findDshHome(explicit) {
  * `failOnStartupError` is false so that a failure here degrades to "the tool is
  * missing" instead of "the product will not boot".
  */
-function buildRow() {
+function buildRow(mode = 'insert') {
+  // An `- insert:` block registers a NEW component. If the package's bundle
+  // patch already inserts this id — which it does whenever the package is
+  // installed as a bundle — inserting a second one registers the component
+  // twice and the harness refuses to start with "duplicate service component".
+  // In that case the row must be an id-targeted OVERRIDE instead.
+  const indent = mode === 'insert' ? '    ' : '';
+  const head = mode === 'insert' ? [`- insert:`] : [];
   return [
-    `- insert:`,
-    `    - id: ${SERVER_ID}`,
-    `      name: '@deepseek-ai/dsh-mcp-client'`,
-    `      config:`,
-    `        serverName: ${SERVER_NAME}`,
-    `        transport: stdio`,
-    `        command: node`,
-    `        args:`,
-    `          - '${path.join(PKG_ROOT, LAUNCHER_REL)}'`,
-    `        cwd: '${PKG_ROOT}'`,
-    `        env:`,
-    `          DSH_CUA_NATIVE: '${path.join(PKG_ROOT, 'native', 'dsh_cua.node')}'`,
-    `        toolCallTimeoutMs: 180000`,
-    `        failOnStartupError: false`,
+    ...head,
+    `${indent}- id: ${SERVER_ID}`,
+    `${indent}  name: '@deepseek-ai/dsh-mcp-client'`,
+    `${indent}  config:`,
+    `${indent}    serverName: ${SERVER_NAME}`,
+    `${indent}    transport: stdio`,
+    `${indent}    command: node`,
+    `${indent}    args:`,
+    `${indent}      - '${path.join(PKG_ROOT, LAUNCHER_REL)}'`,
+    `${indent}    cwd: '${PKG_ROOT}'`,
+    `${indent}    env:`,
+    `${indent}      DSH_CUA_NATIVE: '${path.join(PKG_ROOT, 'native', 'dsh_cua.node')}'`,
+    `${indent}    toolCallTimeoutMs: 180000`,
+    `${indent}    failOnStartupError: false`,
   ].join('\n');
 }
 
@@ -359,8 +366,26 @@ function main() {
     process.exit(1);
   }
 
-  const row = buildRow();
+  // Which shape the row must take depends on whether the package's bundle patch
+  // is present: with a bundle, a second `insert` of the same id registers the
+  // component twice and the harness refuses to boot, so the row must override
+  // the bundle's instead.
+  const home0 = findDshHome(args.home);
+  const bundledHere = (() => {
+    if (!home0) return false;
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(home0, 'profiles', args.profile, 'package.json'), 'utf8'));
+      return (manifest.dsh?.profile?.bundles || []).includes(PKG_NAME);
+    } catch { return false; }
+  })();
+  const rowMode = bundledHere ? 'override' : 'insert';
+  const row = buildRow(rowMode);
 
+  if (args.print) {
+    process.stdout.write(`# row mode: ${rowMode}${bundledHere ? ' (bundle present: overriding it)' : ' (no bundle: inserting)'}\n`);
+    process.stdout.write(row + '\n');
+    return;
+  }
   if (args.print) {
     process.stdout.write(row + '\n');
     return;
@@ -422,10 +447,11 @@ function main() {
 
   const blockLines = [
     BLOCK_HEADER,
-    '# Mounts the dsh-cua MCP server: a persistent JavaScript REPL that drives',
-    '# desktop applications through the Accessibility API. Registers as',
-    `# \`${SERVER_NAME}\`, so the tools appear as mcp__${SERVER_NAME}__js and`,
-    `# mcp__${SERVER_NAME}__js_reset.`,
+    rowMode === 'override'
+      ? '# Overrides the bundle patch\'s mcp-cua row with absolute paths.'
+      : '# Mounts the MCP server (no bundle present, so this inserts it).',
+    '# The harness spawns stdio servers from its own working directory, so the',
+    '# bundled relative path does not resolve; these paths are absolute.',
   ];
   if (replacedEmptyList) blockLines.push(REPLACED_EMPTY_LIST);
   blockLines.push(row);

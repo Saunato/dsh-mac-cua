@@ -258,6 +258,44 @@ function main() {
     assert.ok(/serverName:\s*cua_repl/.test(patch), patch);
   });
 
+  test('buildRow produces an override when a bundle is present', () => {
+    // Regression: always writing an `- insert:` block put a SECOND mcp-cua row
+    // next to the bundle's own, registering the component twice. The harness
+    // refused to start: "duplicate service component mcp-cua".
+    const insert = S.buildRow('insert');
+    const override = S.buildRow('override');
+
+    assert.ok(insert.startsWith('- insert:'), 'insert mode must nest under insert:');
+    assert.ok(!override.startsWith('- insert:'),
+      'override mode must NOT insert: the bundle already inserts this id');
+    assert.ok(/^- id: mcp-cua$/m.test(override), override);
+    // Both must carry a complete config: an id-targeted patch replaces the whole
+    // config object, so a partial one would fail the schema.
+    for (const [mode, row] of [['insert', insert], ['override', override]]) {
+      for (const field of ['serverName', 'transport', 'command', 'args', 'cwd', 'failOnStartupError']) {
+        assert.ok(row.includes(field), `${mode} row is missing ${field}:\n${row}`);
+      }
+    }
+  });
+
+  test('--write picks override mode when the bundle is installed', () => {
+    // A profile that lists the package as a bundle gets an override; one that
+    // does not gets an insert.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cua-mode-'));
+    const profileDir = path.join(home, 'profiles', 'web');
+    fs.mkdirSync(profileDir, { recursive: true });
+    fs.writeFileSync(path.join(profileDir, 'cordis.patch.yml'), '[]\n');
+    fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies: { [require(path.join(__dirname, '..', 'package.json')).name]: 'file:./x.tgz' },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', require(path.join(__dirname, '..', 'package.json')).name] } },
+    }, null, 2));
+
+    const printed = runSetup(['--print', '--home', home]);
+    assert.ok(/row mode: override/.test(printed.stdout), printed.stdout);
+    assert.ok(!/^- insert:/m.test(printed.stdout), printed.stdout);
+  });
+
   test('the generated row sets failOnStartupError to false', () => {
     // Regression: with this true, a bad path took the whole harness down to the
     // safe-mode recovery screen. A plugin must not be able to block the boot.
