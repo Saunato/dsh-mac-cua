@@ -1,5 +1,52 @@
 # Publishing dsh-cua
 
+**Published 2026-09-16.** This file is kept as the record of how, and as the
+procedure for shipping the next version.
+
+| Item | State |
+|---|---|
+| Repository | https://github.com/Saunato/dsh-mac-cua (public) |
+| Release | v1.0.0, asset `dsh-mac-cua.tgz` (version-free name) |
+| Registry PR | https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/5210 |
+| npm | not published — no npmjs.com account was available |
+| Topic | `dsh-plugin` (required by the registry's CI) |
+
+## A note on the transport
+
+`git push` does not work from this network: `github.com:22` and `github.com:443`
+are both unreachable while `api.github.com` resolves and responds. The repository
+was therefore published through the **Git Data API** — one blob per file, one
+tree, one commit, then the branch ref. That is what `scripts/publish-to-github.js`
+does, and it uploads exactly the files git tracks, so the result matches a
+`git push` of the local commit.
+
+The same constraint applies to installs: the `tarball:` URL resolves to
+`github.com` and is unreachable here, though it works from networks that can reach
+GitHub. The asset can be fetched through the reachable host instead, by querying
+the releases API for the asset URL and downloading it with an authenticated
+request — `api.github.com/repos/Saunato/dsh-mac-cua/releases/389602151/assets`
+returns it, and the download returns an identical 138,325-byte tarball (verified
+byte-for-byte).
+
+## Next version
+
+1. Bump `version` in `package.json`, rebuild if the Swift sources changed
+   (`node scripts/build-native.js`), run the suites.
+2. `npm pack`, rename the asset to the version-free `dsh-mac-cua.tgz`, and upload
+   it to a new release:
+   ```sh
+   GH_TOKEN=... node scripts/publish-to-github.js    # publishes the code
+   ```
+   then create the release and upload the asset via the API, keeping the asset
+   name version-free so `latest/download/` keeps resolving.
+3. The registry entry needs no change for a patch release — it points at
+   `latest/download/`.
+
+---
+
+## Original procedure (kept for reference)
+
+
 Everything here is ready. What remains needs credentials this machine does not
 have: an npm token to publish the package, and a GitHub login to push the repo and
 open the registry pull request.
